@@ -63,4 +63,4 @@ jobs:
           FKIT_BI_DEV_DEPLOY_PATH: ${{ vars.FKIT_BI_DEV_DEPLOY_PATH }}
           FKIT_BI_DEV_SSH_KNOWN_HOSTS: ${{ vars.FKIT_BI_DEV_SSH_KNOWN_HOSTS }}
           FKIT_BI_DEV_SSH_PRIVATE_KEY: ${{ secrets.FKIT_BI_DEV_SSH_PRIVATE_KEY }}
-        run: gh repo clone FKIT-BI/fkit-bi-infra ../infra && ../infra/scripts/deploy-service.sh generator ghcr.io/fkit-bi/fkit-bi-generator:${{ github.sha }} ${{ github.sha }}
+        run: gh repo clone FKIT-BI/fkit-bi-infra ../infra -- --branch develop && ../infra/scripts/deploy-service.sh generator ghcr.io/fkit-bi/fkit-bi-generator:${{ github.sha }} ${{ github.sha }}
