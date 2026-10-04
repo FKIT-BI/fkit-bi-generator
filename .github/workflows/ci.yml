@@ -21,9 +21,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/login-action@v3
-        with: {registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }}
+        with: {registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }}}
       - uses: docker/build-push-action@v6
         with: {context: ., push: true, tags: ghcr.io/fkit-bi/fkit-bi-generator:dev,ghcr.io/fkit-bi/fkit-bi-generator:${{ github.sha }}}
+      - name: Report disabled Dev deployment
+        if: vars.FKIT_BI_DEV_DEPLOY_ENABLED != 'true'
+        run: echo 'Dev deployment is disabled by FKIT_BI_DEV_DEPLOY_ENABLED.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Validate Dev deployment configuration
+        if: vars.FKIT_BI_DEV_DEPLOY_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.FKIT_BI_GITHUB_TOKEN }}
+          FKIT_BI_DEV_HOST: ${{ vars.FKIT_BI_DEV_HOST }}
+          FKIT_BI_DEV_SSH_USER: ${{ vars.FKIT_BI_DEV_SSH_USER }}
+          FKIT_BI_DEV_SSH_PORT: ${{ vars.FKIT_BI_DEV_SSH_PORT }}
+          FKIT_BI_DEV_DEPLOY_PATH: ${{ vars.FKIT_BI_DEV_DEPLOY_PATH }}
+          FKIT_BI_DEV_SSH_KNOWN_HOSTS: ${{ vars.FKIT_BI_DEV_SSH_KNOWN_HOSTS }}
+          FKIT_BI_DEV_SSH_PRIVATE_KEY: ${{ secrets.FKIT_BI_DEV_SSH_PRIVATE_KEY }}
+        run: |
+          set -eu
+          : "${GH_TOKEN:?Missing FKIT_BI_GITHUB_TOKEN}" "${FKIT_BI_DEV_HOST:?Missing FKIT_BI_DEV_HOST}" "${FKIT_BI_DEV_SSH_USER:?Missing FKIT_BI_DEV_SSH_USER}" "${FKIT_BI_DEV_SSH_PORT:?Missing FKIT_BI_DEV_SSH_PORT}" "${FKIT_BI_DEV_DEPLOY_PATH:?Missing FKIT_BI_DEV_DEPLOY_PATH}" "${FKIT_BI_DEV_SSH_KNOWN_HOSTS:?Missing FKIT_BI_DEV_SSH_KNOWN_HOSTS}" "${FKIT_BI_DEV_SSH_PRIVATE_KEY:?Missing FKIT_BI_DEV_SSH_PRIVATE_KEY}"
+          echo 'Dev deployment preflight passed.' >> "$GITHUB_STEP_SUMMARY"
       - name: Deploy when enabled
         if: vars.FKIT_BI_DEV_DEPLOY_ENABLED == 'true'
         env:
