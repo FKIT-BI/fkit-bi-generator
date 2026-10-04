@@ -1,0 +1,37 @@
+name: CI and Dev delivery
+on:
+  pull_request: {branches: [develop]}
+  push: {branches: [develop]}
+  workflow_dispatch:
+permissions: {contents: read, packages: write}
+concurrency: {group: fkit-bi-generator-${{ github.ref }}, cancel-in-progress: false}
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: {distribution: temurin, java-version: '21'}
+      - run: ./mvnw -B verify
+      - run: docker build -t fkit-bi-generator:${{ github.sha }} .
+  publish-deploy:
+    if: github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with: {registry: ghcr.io, username: ${{ github.actor }}, password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with: {context: ., push: true, tags: ghcr.io/fkit-bi/fkit-bi-generator:dev,ghcr.io/fkit-bi/fkit-bi-generator:${{ github.sha }}}
+      - name: Deploy when enabled
+        if: vars.FKIT_BI_DEV_DEPLOY_ENABLED == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.FKIT_BI_GITHUB_TOKEN }}
+          FKIT_BI_DEV_HOST: ${{ vars.FKIT_BI_DEV_HOST }}
+          FKIT_BI_DEV_SSH_USER: ${{ vars.FKIT_BI_DEV_SSH_USER }}
+          FKIT_BI_DEV_SSH_PORT: ${{ vars.FKIT_BI_DEV_SSH_PORT }}
+          FKIT_BI_DEV_DEPLOY_PATH: ${{ vars.FKIT_BI_DEV_DEPLOY_PATH }}
+          FKIT_BI_DEV_SSH_KNOWN_HOSTS: ${{ vars.FKIT_BI_DEV_SSH_KNOWN_HOSTS }}
+          FKIT_BI_DEV_SSH_PRIVATE_KEY: ${{ secrets.FKIT_BI_DEV_SSH_PRIVATE_KEY }}
+        run: gh repo clone FKIT-BI/fkit-bi-infra ../infra && ../infra/scripts/deploy-service.sh generator ghcr.io/fkit-bi/fkit-bi-generator:${{ github.sha }} ${{ github.sha }}
