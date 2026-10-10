@@ -9,6 +9,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Size;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.availability.AvailabilityChangeEvent;
@@ -25,6 +29,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:testdb")
@@ -63,6 +68,14 @@ class GeneratorApplicationTest {
   }
 
   @Test
+  void maximumAllowedTraceIdIsPreserved() throws Exception {
+    String traceId = "a".repeat(128);
+    mockMvc.perform(get("/__test/success").header("X-Trace-Id", traceId))
+        .andExpect(status().isOk())
+        .andExpect(header().string("X-Trace-Id", traceId));
+  }
+
+  @Test
   void malformedJsonUsesCommonErrorEnvelope() throws Exception {
     mockMvc.perform(post("/__test/validate").header("X-Trace-Id", "malformed-7")
             .contentType(MediaType.APPLICATION_JSON).content("{"))
@@ -76,10 +89,48 @@ class GeneratorApplicationTest {
 
   @Test
   void beanValidationUses422AndDoesNotEchoSubmittedValue() throws Exception {
-    mockMvc.perform(post("/__test/validate").contentType(MediaType.APPLICATION_JSON).content("{\"value\":\"\"}"))
+    var result = mockMvc.perform(post("/__test/validate").contentType(MediaType.APPLICATION_JSON).content("{\"value\":\"\"}"))
         .andExpect(status().isUnprocessableEntity())
         .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
         .andExpect(jsonPath("$.fieldErrors[0].path").value("value"))
+        .andExpect(jsonPath("$.fieldErrors[0].message").value("Value is invalid"))
+        .andReturn();
+    String generatedTraceId = result.getResponse().getHeader("X-Trace-Id");
+    assertNotNull(generatedTraceId);
+    assertEquals(generatedTraceId, com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.traceId"));
+  }
+
+  @Test
+  void multipleInvalidFieldsAreReportedWithoutEchoingValues() throws Exception {
+    var result = mockMvc.perform(post("/__test/validate-multiple").contentType(MediaType.APPLICATION_JSON)
+            .content("{\"password\":\"private-secret\",\"quantity\":-999}"))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.fieldErrors[*].path").value(org.hamcrest.Matchers.containsInAnyOrder("password", "quantity")))
+        .andReturn();
+    String body = result.getResponse().getContentAsString();
+    org.junit.jupiter.api.Assertions.assertFalse(body.contains("private-secret"));
+    org.junit.jupiter.api.Assertions.assertFalse(body.contains("-999"));
+  }
+
+  @Test
+  void missingRouteAndUnsupportedMethodKeepFrameworkStatusesInCommonEnvelope() throws Exception {
+    mockMvc.perform(get("/__test/missing").header("X-Trace-Id", "missing-4"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("NOT_FOUND"))
+        .andExpect(jsonPath("$.traceId").value("missing-4"))
+        .andExpect(jsonPath("$.fieldErrors").isArray());
+    mockMvc.perform(post("/__test/success").header("X-Trace-Id", "method-4"))
+        .andExpect(status().isMethodNotAllowed())
+        .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
+        .andExpect(jsonPath("$.traceId").value("method-4"));
+  }
+
+  @Test
+  void requestParameterValidationUses422AndSafePath() throws Exception {
+    mockMvc.perform(get("/__test/parameter-validation").param("count", "0"))
+        .andExpect(status().isUnprocessableEntity())
+        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+        .andExpect(jsonPath("$.fieldErrors[0].path").value("count"))
         .andExpect(jsonPath("$.fieldErrors[0].message").value("Value is invalid"));
   }
 
@@ -105,6 +156,9 @@ class GeneratorApplicationTest {
   void readinessFailsWhileApplicationRefusesTraffic() throws Exception {
     AvailabilityChangeEvent.publish(applicationContext, ReadinessState.REFUSING_TRAFFIC);
     try {
+      mockMvc.perform(get("/actuator/health/liveness"))
+          .andExpect(status().isOk())
+          .andExpect(jsonPath("$.status").value("UP"));
       mockMvc.perform(get("/actuator/health/readiness"))
           .andExpect(status().isServiceUnavailable())
           .andExpect(jsonPath("$.status").value("OUT_OF_SERVICE"));
@@ -124,7 +178,10 @@ class GeneratorApplicationTest {
     @GetMapping("/success") String success() { return "ok"; }
     @GetMapping("/fail") String fail() { throw new IllegalStateException("password=never-return-this"); }
     @PostMapping("/validate") String validate(@Valid @RequestBody TestRequest request) { return request.value(); }
+    @PostMapping("/validate-multiple") String validateMultiple(@Valid @RequestBody MultiInvalidRequest request) { return "ok"; }
+    @GetMapping("/parameter-validation") String parameterValidation(@RequestParam("count") @Min(1) int count) { return "ok"; }
   }
 
   record TestRequest(@NotBlank String value) {}
+  record MultiInvalidRequest(@Size(min = 30) String password, @Min(1) int quantity) {}
 }
