@@ -1,0 +1,1072 @@
+openapi: 3.1.0
+info:
+  title: FKIT BI Generator API
+  version: 1.0.0
+  license:
+    name: Proprietary
+    identifier: LicenseRef-Proprietary
+  description: |
+    Публичный API настройки сценариев и управления realtime, historical и
+    scheduled generation runs. Equipment CRUD остаётся в Analytics API,
+    а raw telemetry записывается внутренним JDBC TelemetrySink.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+tags:
+  - name: scenarios
+    description: Сценарии поведения существующего оборудования
+  - name: runs
+    description: Проверка, запуск и управление генерацией
+
+paths:
+  /scenarios:
+    get:
+      tags: [scenarios]
+      operationId: listScenarios
+      summary: Получить сценарии предприятия
+      parameters:
+        - $ref: '#/components/parameters/EnterpriseIdQuery'
+        - $ref: '#/components/parameters/ScenarioStatusFilter'
+        - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200':
+          description: Страница сценариев
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [scenarios]
+      operationId: createScenario
+      summary: Создать отключённый сценарий
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioCreate' }
+            examples:
+              lineDemo:
+                $ref: '#/components/examples/ScenarioCreateExample'
+      responses:
+        '201':
+          description: Сценарий создан в статусе DISABLED
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioDetail' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /scenarios/validate:
+    post:
+      tags: [scenarios]
+      operationId: validateScenarioDraft
+      summary: Проверить несохранённый сценарий
+      description: Не сохраняет Scenario и не изменяет status существующих ресурсов.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioCreate' }
+      responses:
+        '200':
+          description: Полный результат проверки; domain errors представлены issues
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioValidationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /scenarios/{scenarioId}:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    get:
+      tags: [scenarios]
+      operationId: getScenario
+      summary: Получить полную конфигурацию сценария
+      responses:
+        '200':
+          description: Сценарий с актуальным validation result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    put:
+      tags: [scenarios]
+      operationId: updateScenario
+      summary: Полностью заменить изменяемую конфигурацию сценария
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioUpdate' }
+      responses:
+        '200':
+          description: Обновлённый сценарий и validation result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /scenarios/{scenarioId}/status:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    put:
+      tags: [scenarios]
+      operationId: updateScenarioStatus
+      summary: Активировать или отключить сценарий
+      description: Activation повторно проверяет текущие Enterprise, Line, Machine и Signal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/StatusUpdate' }
+      responses:
+        '200':
+          description: Сценарий с новым статусом
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /runs:
+    get:
+      tags: [runs]
+      operationId: listRuns
+      summary: Получить журнал запусков предприятия
+      parameters:
+        - $ref: '#/components/parameters/EnterpriseIdQuery'
+        - $ref: '#/components/parameters/ScenarioIdFilter'
+        - $ref: '#/components/parameters/MachineIdFilter'
+        - $ref: '#/components/parameters/RunModeFilter'
+        - $ref: '#/components/parameters/RunStatusFilter'
+        - $ref: '#/components/parameters/RequestedFrom'
+        - $ref: '#/components/parameters/RequestedTo'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: Cursor-page запусков в порядке requestedAt DESC, id DESC
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunPage' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalError' }
+    post:
+      tags: [runs]
+      operationId: createRun
+      summary: Создать realtime, historical или scheduled запуск
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunCreate' }
+            examples:
+              historical:
+                $ref: '#/components/examples/HistoricalRunCreateExample'
+      responses:
+        '202':
+          description: Запуск создан и принят к выполнению либо ожиданию срока
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationRunDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /runs/validate:
+    post:
+      tags: [runs]
+      operationId: validateRun
+      summary: Проверить и оценить запуск без создания
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RunCreate' }
+      responses:
+        '200':
+          description: Нормализованные границы, estimates, conflicts и issues
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RunValidationResult' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /runs/{runId}:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    get:
+      tags: [runs]
+      operationId: getRun
+      summary: Получить запуск, progress и analytics context
+      responses:
+        '200':
+          description: Полное состояние запуска
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationRunDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /runs/{runId}/stop:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      tags: [runs]
+      operationId: stopRun
+      summary: Остановить либо отменить запуск
+      description: Повторная команда идемпотентно возвращает текущее состояние.
+      responses:
+        '200':
+          description: Запуск уже terminal либо был отменён до выполнения
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationRunDetail' }
+        '202':
+          description: Stop request принят для выполняющегося запуска
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationRunDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /runs/{runId}/retry:
+    parameters:
+      - $ref: '#/components/parameters/RunId'
+    post:
+      tags: [runs]
+      operationId: retryRun
+      summary: Повторить retryable failed запуск
+      responses:
+        '202':
+          description: Следующая attempt поставлена в очередь
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GenerationRunDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  headers:
+    Location:
+      description: URL созданного ресурса
+      schema: { type: string, format: uri-reference }
+
+  parameters:
+    ScenarioId:
+      name: scenarioId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    RunId:
+      name: runId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    EnterpriseIdQuery:
+      name: enterpriseId
+      in: query
+      required: true
+      schema: { type: string, format: uuid }
+    ScenarioStatusFilter:
+      name: status
+      in: query
+      description: Без параметра возвращаются только ACTIVE сценарии; укажите DISABLED для списка отключённых сценариев.
+      schema:
+        allOf:
+          - $ref: '#/components/schemas/ConfigurationStatus'
+        default: ACTIVE
+    Search:
+      name: search
+      in: query
+      schema: { type: string, minLength: 1, maxLength: 100 }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    ScenarioIdFilter:
+      name: scenarioId
+      in: query
+      schema: { type: string, format: uuid }
+    MachineIdFilter:
+      name: machineId
+      in: query
+      schema: { type: string, format: uuid }
+    RunModeFilter:
+      name: mode
+      in: query
+      schema: { $ref: '#/components/schemas/RunMode' }
+    RunStatusFilter:
+      name: status
+      in: query
+      style: form
+      explode: true
+      schema:
+        type: array
+        maxItems: 8
+        uniqueItems: true
+        items: { $ref: '#/components/schemas/RunStatus' }
+    RequestedFrom:
+      name: requestedFrom
+      in: query
+      schema: { type: string, format: date-time }
+    RequestedTo:
+      name: requestedTo
+      in: query
+      schema: { type: string, format: date-time }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string, minLength: 1, maxLength: 500 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: Повтор сетевого запроса обязан использовать тот же ключ и body.
+      schema: { type: string, minLength: 8, maxLength: 128 }
+
+  responses:
+    BadRequest:
+      description: Malformed JSON, query либо несовместимый transport input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    NotFound:
+      description: Ресурс не найден
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Conflict:
+      description: Конфликт состояния, overlap, idempotency или concurrency
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    UnprocessableEntity:
+      description: Полный набор ошибок доменной конфигурации
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    InternalError:
+      description: Непредвиденная ошибка с traceId
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+
+  schemas:
+    ConfigurationStatus:
+      type: string
+      enum: [ACTIVE, DISABLED]
+    CycleMode:
+      type: string
+      enum: [ONCE, LOOP]
+    ExpectedMachineState:
+      type: string
+      enum: [RUN, IDLE, DOWN, SETUP, PLANNED_STOP, OFFLINE]
+    SourceQuality:
+      type: string
+      enum: [GOOD, UNCERTAIN, BAD]
+    RunMode:
+      type: string
+      enum: [REALTIME, HISTORICAL, SCHEDULED]
+    RunStatus:
+      type: string
+      enum: [SCHEDULED, QUEUED, RUNNING, STOP_REQUESTED, COMPLETED, STOPPED, CANCELLED, FAILED]
+    IssueSeverity:
+      type: string
+      enum: [ERROR, WARNING]
+
+    StatusUpdate:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status: { $ref: '#/components/schemas/ConfigurationStatus' }
+
+    ScenarioCreate:
+      type: object
+      additionalProperties: false
+      required: [enterpriseId, code, name, cycleMode, machineTargets, phases]
+      properties:
+        enterpriseId: { type: string, format: uuid }
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]{1,63}$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        cycleMode: { $ref: '#/components/schemas/CycleMode' }
+        machineTargets:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/MachineTargetInput' }
+        phases:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/ScenarioPhaseInput' }
+
+    ScenarioUpdate:
+      type: object
+      additionalProperties: false
+      required: [name, cycleMode, machineTargets, phases]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
+        cycleMode: { $ref: '#/components/schemas/CycleMode' }
+        machineTargets:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/MachineTargetInput' }
+        phases:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/ScenarioPhaseInput' }
+
+    MachineTargetInput:
+      type: object
+      additionalProperties: false
+      required: [machineId, baseBehaviors]
+      properties:
+        machineId: { type: string, format: uuid }
+        baseBehaviors:
+          type: array
+          maxItems: 100
+          items: { $ref: '#/components/schemas/BaseSignalBehavior' }
+
+    BaseSignalBehavior:
+      type: object
+      additionalProperties: false
+      required: [signalId, behavior]
+      properties:
+        signalId: { type: string, format: uuid }
+        behavior: { $ref: '#/components/schemas/BehaviorConfiguration' }
+
+    ScenarioPhaseInput:
+      type: object
+      additionalProperties: false
+      required: [code, name, durationMs, behaviorOverrides]
+      properties:
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]{0,63}$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        durationMs: { type: integer, format: int64, minimum: 1000 }
+        expectedState: { $ref: '#/components/schemas/ExpectedMachineState' }
+        behaviorOverrides:
+          type: array
+          maxItems: 1000
+          items: { $ref: '#/components/schemas/BehaviorOverride' }
+
+    BehaviorOverride:
+      oneOf:
+        - $ref: '#/components/schemas/ReplaceBehaviorOverride'
+        - $ref: '#/components/schemas/DisableBehaviorOverride'
+      discriminator:
+        propertyName: action
+        mapping:
+          REPLACE: '#/components/schemas/ReplaceBehaviorOverride'
+          DISABLE: '#/components/schemas/DisableBehaviorOverride'
+
+    ReplaceBehaviorOverride:
+      type: object
+      additionalProperties: false
+      required: [signalId, action, behavior]
+      properties:
+        signalId: { type: string, format: uuid }
+        action: { type: string, const: REPLACE }
+        behavior: { $ref: '#/components/schemas/BehaviorConfiguration' }
+
+    DisableBehaviorOverride:
+      type: object
+      additionalProperties: false
+      required: [signalId, action]
+      properties:
+        signalId: { type: string, format: uuid }
+        action: { type: string, const: DISABLE }
+
+    BehaviorConfiguration:
+      oneOf:
+        - $ref: '#/components/schemas/ConstantBehavior'
+        - $ref: '#/components/schemas/UniformBehavior'
+        - $ref: '#/components/schemas/NormalBehavior'
+        - $ref: '#/components/schemas/RampBehavior'
+        - $ref: '#/components/schemas/SineBehavior'
+        - $ref: '#/components/schemas/CounterRateBehavior'
+        - $ref: '#/components/schemas/PulseBehavior'
+        - $ref: '#/components/schemas/BernoulliBehavior'
+        - $ref: '#/components/schemas/SequenceBehavior'
+      discriminator:
+        propertyName: model
+        mapping:
+          CONSTANT: '#/components/schemas/ConstantBehavior'
+          UNIFORM: '#/components/schemas/UniformBehavior'
+          NORMAL: '#/components/schemas/NormalBehavior'
+          RAMP: '#/components/schemas/RampBehavior'
+          SINE: '#/components/schemas/SineBehavior'
+          COUNTER_RATE: '#/components/schemas/CounterRateBehavior'
+          PULSE: '#/components/schemas/PulseBehavior'
+          BERNOULLI: '#/components/schemas/BernoulliBehavior'
+          SEQUENCE: '#/components/schemas/SequenceBehavior'
+
+    BehaviorCommon:
+      type: object
+      required: [model, generationIntervalMs]
+      properties:
+        model: { type: string }
+        generationIntervalMs: { type: integer, format: int64, minimum: 1000 }
+        sourceQuality:
+          allOf: [{ $ref: '#/components/schemas/SourceQuality' }]
+          default: GOOD
+        missingProbability: { type: number, minimum: 0, maximum: 1, default: 0 }
+        seedOverride: { type: integer, format: int64 }
+
+    NumericBehaviorCommon:
+      allOf:
+        - $ref: '#/components/schemas/BehaviorCommon'
+        - type: object
+          properties:
+            noiseStandardDeviation: { type: number, minimum: 0, default: 0 }
+
+    ConstantBehavior:
+      allOf:
+        - $ref: '#/components/schemas/BehaviorCommon'
+        - type: object
+          required: [value]
+          properties:
+            model: { type: string, const: CONSTANT }
+            value:
+              oneOf:
+                - { type: number }
+                - { type: boolean }
+                - { type: string, maxLength: 500 }
+
+    UniformBehavior:
+      allOf:
+        - $ref: '#/components/schemas/NumericBehaviorCommon'
+        - type: object
+          required: [min, max]
+          properties:
+            model: { type: string, const: UNIFORM }
+            min: { type: number }
+            max: { type: number }
+
+    NormalBehavior:
+      allOf:
+        - $ref: '#/components/schemas/NumericBehaviorCommon'
+        - type: object
+          required: [mean, standardDeviation]
+          properties:
+            model: { type: string, const: NORMAL }
+            mean: { type: number }
+            standardDeviation: { type: number, exclusiveMinimum: 0 }
+            clampMin: { type: number }
+            clampMax: { type: number }
+
+    RampBehavior:
+      allOf:
+        - $ref: '#/components/schemas/NumericBehaviorCommon'
+        - type: object
+          required: [from, to, durationMs, repeat]
+          properties:
+            model: { type: string, const: RAMP }
+            from: { type: number }
+            to: { type: number }
+            durationMs: { type: integer, format: int64, minimum: 1000 }
+            repeat: { type: boolean }
+
+    SineBehavior:
+      allOf:
+        - $ref: '#/components/schemas/NumericBehaviorCommon'
+        - type: object
+          required: [center, amplitude, periodMs]
+          properties:
+            model: { type: string, const: SINE }
+            center: { type: number }
+            amplitude: { type: number, minimum: 0 }
+            periodMs: { type: integer, format: int64, minimum: 1000 }
+            phaseRadians: { type: number, default: 0 }
+
+    CounterRateBehavior:
+      allOf:
+        - $ref: '#/components/schemas/BehaviorCommon'
+        - type: object
+          required: [initialValue, incrementPerSecond]
+          properties:
+            model: { type: string, const: COUNTER_RATE }
+            initialValue: { type: number }
+            incrementPerSecond: { type: number, minimum: 0 }
+            resetThreshold: { type: number }
+            resetValue: { type: number, default: 0 }
+
+    PulseBehavior:
+      allOf:
+        - $ref: '#/components/schemas/BehaviorCommon'
+        - type: object
+          required: [onDurationMs, offDurationMs, initialValue]
+          properties:
+            model: { type: string, const: PULSE }
+            onDurationMs: { type: integer, format: int64, minimum: 1000 }
+            offDurationMs: { type: integer, format: int64, minimum: 1000 }
+            initialValue: { type: boolean }
+
+    BernoulliBehavior:
+      allOf:
+        - $ref: '#/components/schemas/BehaviorCommon'
+        - type: object
+          required: [trueProbability]
+          properties:
+            model: { type: string, const: BERNOULLI }
+            trueProbability: { type: number, minimum: 0, maximum: 1 }
+
+    SequenceBehavior:
+      allOf:
+        - $ref: '#/components/schemas/BehaviorCommon'
+        - type: object
+          required: [values, dwellMs, repeat]
+          properties:
+            model: { type: string, const: SEQUENCE }
+            values:
+              type: array
+              minItems: 1
+              maxItems: 100
+              items: { type: string, maxLength: 500 }
+            dwellMs: { type: integer, format: int64, minimum: 1000 }
+            repeat: { type: boolean }
+
+    ScenarioSummary:
+      type: object
+      additionalProperties: false
+      required: [id, enterpriseId, code, name, status, cycleMode, machineCount, phaseCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/ConfigurationStatus' }
+        cycleMode: { $ref: '#/components/schemas/CycleMode' }
+        machineCount: { type: integer, minimum: 0 }
+        phaseCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ScenarioDetail:
+      type: object
+      additionalProperties: false
+      required: [id, enterpriseId, code, name, status, cycleMode, machineTargets, phases, validation, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        code: { type: string }
+        name: { type: string }
+        description: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/ConfigurationStatus' }
+        cycleMode: { $ref: '#/components/schemas/CycleMode' }
+        machineTargets:
+          type: array
+          items: { $ref: '#/components/schemas/MachineTargetInput' }
+        phases:
+          type: array
+          items: { $ref: '#/components/schemas/ScenarioPhaseInput' }
+        validation: { $ref: '#/components/schemas/ScenarioValidationResult' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ScenarioPage:
+      type: object
+      additionalProperties: false
+      required: [items, page, size, totalElements, totalPages]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ScenarioSummary' }
+        page: { type: integer, minimum: 0 }
+        size: { type: integer, minimum: 1 }
+        totalElements: { type: integer, format: int64, minimum: 0 }
+        totalPages: { type: integer, minimum: 0 }
+
+    ScenarioValidationResult:
+      type: object
+      additionalProperties: false
+      required: [valid, errorCount, warningCount, issues]
+      properties:
+        valid: { type: boolean }
+        errorCount: { type: integer, minimum: 0 }
+        warningCount: { type: integer, minimum: 0 }
+        issues:
+          type: array
+          items: { $ref: '#/components/schemas/ValidationIssue' }
+
+    ValidationIssue:
+      type: object
+      additionalProperties: false
+      required: [severity, code, path, message]
+      properties:
+        severity: { $ref: '#/components/schemas/IssueSeverity' }
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]*$' }
+        path: { type: string }
+        message: { type: string }
+        entityType: { type: [string, 'null'] }
+        entityId:
+          oneOf:
+            - { type: string, format: uuid }
+            - { type: 'null' }
+
+    RunCreate:
+      oneOf:
+        - $ref: '#/components/schemas/RealtimeRunCreate'
+        - $ref: '#/components/schemas/HistoricalRunCreate'
+        - $ref: '#/components/schemas/ScheduledRunCreate'
+      discriminator:
+        propertyName: mode
+        mapping:
+          REALTIME: '#/components/schemas/RealtimeRunCreate'
+          HISTORICAL: '#/components/schemas/HistoricalRunCreate'
+          SCHEDULED: '#/components/schemas/ScheduledRunCreate'
+
+    RunCreateCommon:
+      type: object
+      required: [mode, scenarioId]
+      properties:
+        mode: { $ref: '#/components/schemas/RunMode' }
+        scenarioId: { type: string, format: uuid }
+        randomSeed: { type: integer, format: int64 }
+
+    RealtimeRunCreate:
+      allOf:
+        - $ref: '#/components/schemas/RunCreateCommon'
+        - type: object
+          properties:
+            mode: { type: string, const: REALTIME }
+            durationMs: { type: integer, format: int64, minimum: 1000 }
+
+    HistoricalRunCreate:
+      allOf:
+        - $ref: '#/components/schemas/RunCreateCommon'
+        - type: object
+          required: [from, to]
+          properties:
+            mode: { type: string, const: HISTORICAL }
+            from: { type: string, format: date-time }
+            to: { type: string, format: date-time }
+
+    ScheduledRunCreate:
+      allOf:
+        - $ref: '#/components/schemas/RunCreateCommon'
+        - type: object
+          required: [scheduledStartAt]
+          not:
+            type: object
+            properties:
+              durationMs: {}
+              eventTo: {}
+            required: [durationMs, eventTo]
+          properties:
+            mode: { type: string, const: SCHEDULED }
+            scheduledStartAt: { type: string, format: date-time }
+            durationMs: { type: integer, format: int64, minimum: 1000 }
+            eventTo: { type: string, format: date-time }
+
+    RunValidationResult:
+      type: object
+      additionalProperties: false
+      required: [valid, mode, issues, conflicts]
+      properties:
+        valid: { type: boolean }
+        mode: { $ref: '#/components/schemas/RunMode' }
+        normalizedFrom:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        normalizedTo:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        estimatedMeasurements: { type: [integer, 'null'], format: int64, minimum: 0 }
+        estimatedBatches: { type: [integer, 'null'], format: int64, minimum: 0 }
+        estimatedWallDurationSeconds: { type: [integer, 'null'], format: int64, minimum: 0 }
+        issues:
+          type: array
+          items: { $ref: '#/components/schemas/ValidationIssue' }
+        conflicts:
+          type: array
+          items: { $ref: '#/components/schemas/RunConflict' }
+
+    RunConflict:
+      type: object
+      additionalProperties: false
+      required: [code, machineIds]
+      properties:
+        code: { type: string }
+        machineIds:
+          type: array
+          items: { type: string, format: uuid }
+        from:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        to:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        conflictingRunId:
+          oneOf:
+            - { type: string, format: uuid }
+            - { type: 'null' }
+
+    GenerationRunSummary:
+      type: object
+      additionalProperties: false
+      required: [id, scenarioId, enterpriseId, mode, status, attemptNo, requestedAt, machineCount, progress]
+      properties:
+        id: { type: string, format: uuid }
+        scenarioId: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        mode: { $ref: '#/components/schemas/RunMode' }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        attemptNo: { type: integer, minimum: 1 }
+        requestedAt: { type: string, format: date-time }
+        scheduledStartAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        startedAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        finishedAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        machineCount: { type: integer, minimum: 1 }
+        progress: { $ref: '#/components/schemas/RunProgress' }
+
+    GenerationRunDetail:
+      type: object
+      additionalProperties: false
+      required: [id, scenarioId, enterpriseId, mode, status, attemptNo, randomSeed, requestedAt, machineIds, progress, analyticsContext]
+      properties:
+        id: { type: string, format: uuid }
+        scenarioId: { type: string, format: uuid }
+        enterpriseId: { type: string, format: uuid }
+        mode: { $ref: '#/components/schemas/RunMode' }
+        status: { $ref: '#/components/schemas/RunStatus' }
+        attemptNo: { type: integer, minimum: 1 }
+        randomSeed: { type: integer, format: int64 }
+        requestedAt: { type: string, format: date-time }
+        scheduledStartAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        startedAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        finishedAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        stopRequestedAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        eventFrom:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        eventTo:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        machineIds:
+          type: array
+          minItems: 1
+          items: { type: string, format: uuid }
+        progress: { $ref: '#/components/schemas/RunProgress' }
+        checkpoint:
+          oneOf:
+            - $ref: '#/components/schemas/CheckpointSummary'
+            - { type: 'null' }
+        failure:
+          oneOf:
+            - $ref: '#/components/schemas/RunFailure'
+            - { type: 'null' }
+        analyticsContext: { $ref: '#/components/schemas/AnalyticsContext' }
+
+    RunProgress:
+      type: object
+      additionalProperties: false
+      required: [currentPhaseCode, cycleNumber, generatedThrough, progressPercent, generatedMeasurements, writtenMeasurements, droppedMeasurements, failedBatches, lastSuccessfulWriteAt]
+      properties:
+        currentPhaseCode: { type: [string, 'null'] }
+        cycleNumber: { type: integer, format: int64, minimum: 0 }
+        generatedThrough:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        progressPercent: { type: [number, 'null'], minimum: 0, maximum: 100 }
+        generatedMeasurements: { type: integer, format: int64, minimum: 0 }
+        writtenMeasurements: { type: integer, format: int64, minimum: 0 }
+        droppedMeasurements: { type: integer, format: int64, minimum: 0 }
+        failedBatches: { type: integer, format: int64, minimum: 0 }
+        lastSuccessfulWriteAt:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+
+    CheckpointSummary:
+      type: object
+      additionalProperties: false
+      required: [completedThrough, phaseCode, cycleNumber, batchSequence]
+      properties:
+        completedThrough: { type: string, format: date-time }
+        phaseCode: { type: string }
+        cycleNumber: { type: integer, format: int64, minimum: 0 }
+        batchSequence: { type: integer, format: int64, minimum: 0 }
+
+    RunFailure:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable, failedAt]
+      properties:
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]*$' }
+        message: { type: string, maxLength: 1000 }
+        retryable: { type: boolean }
+        failedAt: { type: string, format: date-time }
+
+    AnalyticsContext:
+      type: object
+      additionalProperties: false
+      required: [enterpriseId, machineIds, from, to, generatedThrough]
+      properties:
+        enterpriseId: { type: string, format: uuid }
+        machineIds:
+          type: array
+          items: { type: string, format: uuid }
+        from:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        to:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+        generatedThrough:
+          oneOf:
+            - { type: string, format: date-time }
+            - { type: 'null' }
+
+    RunPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/GenerationRunSummary' }
+        nextCursor: { type: [string, 'null'] }
+
+    FieldError:
+      type: object
+      additionalProperties: false
+      required: [path, code, message]
+      properties:
+        path: { type: string }
+        code: { type: string }
+        message: { type: string }
+
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message, traceId, fieldErrors, details]
+      properties:
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]*$' }
+        message: { type: string }
+        traceId: { type: string }
+        fieldErrors:
+          type: array
+          items: { $ref: '#/components/schemas/FieldError' }
+        details:
+          type: object
+          additionalProperties: true
+
+  examples:
+    ScenarioCreateExample:
+      summary: Сценарий с base behavior и фазовым override
+      value:
+        enterpriseId: 10000000-0000-0000-0000-000000000001
+        code: LINE_A_DEMO
+        name: Демонстрация линии A
+        description: Нормальная работа и перегрев
+        cycleMode: LOOP
+        machineTargets:
+          - machineId: 20000000-0000-0000-0000-000000000001
+            baseBehaviors:
+              - signalId: 30000000-0000-0000-0000-000000000001
+                behavior:
+                  model: NORMAL
+                  generationIntervalMs: 5000
+                  mean: 65
+                  standardDeviation: 2
+        phases:
+          - code: NORMAL
+            name: Нормальная работа
+            durationMs: 600000
+            expectedState: RUN
+            behaviorOverrides: []
+          - code: OVERHEAT
+            name: Перегрев
+            durationMs: 180000
+            expectedState: DOWN
+            behaviorOverrides:
+              - signalId: 30000000-0000-0000-0000-000000000001
+                action: REPLACE
+                behavior:
+                  model: RAMP
+                  generationIntervalMs: 5000
+                  from: 65
+                  to: 110
+                  durationMs: 180000
+                  repeat: false
+    HistoricalRunCreateExample:
+      summary: Историческая генерация за сутки
+      value:
+        mode: HISTORICAL
+        scenarioId: 40000000-0000-0000-0000-000000000001
+        randomSeed: 482901
+        from: '2026-10-01T00:00:00Z'
+        to: '2026-10-02T00:00:00Z'
