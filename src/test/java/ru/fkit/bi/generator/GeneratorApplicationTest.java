@@ -31,13 +31,32 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.jdbc.core.JdbcTemplate;
 
-@SpringBootTest(properties = "spring.datasource.url=jdbc:h2:mem:testdb")
+@Testcontainers
+@SpringBootTest
 @AutoConfigureMockMvc
 @Import(GeneratorApplicationTest.TestEndpoints.class)
 class GeneratorApplicationTest {
+  @Container
+  static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
+      .withInitScript("schema-release-ready.sql");
+
+  @DynamicPropertySource
+  static void databaseProperties(DynamicPropertyRegistry registry) {
+    registry.add("spring.datasource.url", postgres::getJdbcUrl);
+    registry.add("spring.datasource.username", postgres::getUsername);
+    registry.add("spring.datasource.password", postgres::getPassword);
+  }
+
   @Autowired MockMvc mockMvc;
   @Autowired ApplicationContext applicationContext;
+  @Autowired JdbcTemplate jdbcTemplate;
 
   @Test
   void successPreservesValidTraceIdAndReturnsItInHeader() throws Exception {
@@ -149,7 +168,28 @@ class GeneratorApplicationTest {
   @Test
   void actuatorLivenessAndReadinessAreAvailable() throws Exception {
     mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
-    mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+    mockMvc.perform(get("/actuator/health")).andExpect(status().isOk())
+        .andExpect(jsonPath("$.components").doesNotExist());
+    mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("UP"))
+        .andExpect(jsonPath("$.components.schemaRelease.details.release").value("001-foundation"));
+  }
+
+  @Test
+  void readinessRequiresTheExactSchemaReleaseAndLivenessStaysUp() throws Exception {
+    jdbcTemplate.update("UPDATE equipment.schema_release SET release = '002-next' WHERE singleton = TRUE");
+    mockMvc.perform(get("/actuator/health/readiness"))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.components.schemaRelease.details.reason").value("RELEASE_MISMATCH"));
+    mockMvc.perform(get("/actuator/health/liveness"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
+
+    jdbcTemplate.update("UPDATE equipment.schema_release SET release = '001-foundation' WHERE singleton = TRUE");
+    jdbcTemplate.update("DELETE FROM equipment.schema_release WHERE singleton = TRUE");
+    mockMvc.perform(get("/actuator/health/readiness"))
+        .andExpect(status().isServiceUnavailable())
+        .andExpect(jsonPath("$.components.schemaRelease.details.reason").value("RELEASE_MISSING"));
+    jdbcTemplate.update("INSERT INTO equipment.schema_release (singleton, release) VALUES (TRUE, '001-foundation')");
   }
 
   @Test
