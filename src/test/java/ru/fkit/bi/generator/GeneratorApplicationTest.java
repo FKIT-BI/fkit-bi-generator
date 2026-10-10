@@ -36,12 +36,25 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.security.test.context.support.WithAnonymousUser;
+import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
+import org.springframework.security.oauth2.jwt.JwtClaimsSet;
+import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
+import org.springframework.security.oauth2.jwt.JwsHeader;
+import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import com.nimbusds.jose.jwk.source.ImmutableSecret;
+import java.time.Instant;
+import java.util.Base64;
+import java.util.UUID;
+import javax.crypto.spec.SecretKeySpec;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
 @Import(GeneratorApplicationTest.TestEndpoints.class)
+@WithMockUser
 class GeneratorApplicationTest {
   @Container
   static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -52,6 +65,7 @@ class GeneratorApplicationTest {
     registry.add("spring.datasource.url", postgres::getJdbcUrl);
     registry.add("spring.datasource.username", postgres::getUsername);
     registry.add("spring.datasource.password", postgres::getPassword);
+    registry.add("fkit.auth.jwt-secret", () -> "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=");
   }
 
   @Autowired MockMvc mockMvc;
@@ -172,7 +186,7 @@ class GeneratorApplicationTest {
         .andExpect(jsonPath("$.components").doesNotExist());
     mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk())
         .andExpect(jsonPath("$.status").value("UP"))
-        .andExpect(jsonPath("$.components.schemaRelease.details.release").value("001-foundation"));
+        .andExpect(jsonPath("$.components.schemaRelease.details.release").value("002-authentication"));
   }
 
   @Test
@@ -184,12 +198,12 @@ class GeneratorApplicationTest {
     mockMvc.perform(get("/actuator/health/liveness"))
         .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("UP"));
 
-    jdbcTemplate.update("UPDATE equipment.schema_release SET release = '001-foundation' WHERE singleton = TRUE");
+    jdbcTemplate.update("UPDATE equipment.schema_release SET release = '002-authentication' WHERE singleton = TRUE");
     jdbcTemplate.update("DELETE FROM equipment.schema_release WHERE singleton = TRUE");
     mockMvc.perform(get("/actuator/health/readiness"))
         .andExpect(status().isServiceUnavailable())
         .andExpect(jsonPath("$.components.schemaRelease.details.reason").value("RELEASE_MISSING"));
-    jdbcTemplate.update("INSERT INTO equipment.schema_release (singleton, release) VALUES (TRUE, '001-foundation')");
+    jdbcTemplate.update("INSERT INTO equipment.schema_release (singleton, release) VALUES (TRUE, '002-authentication')");
   }
 
   @Test
@@ -205,6 +219,44 @@ class GeneratorApplicationTest {
     } finally {
       AvailabilityChangeEvent.publish(applicationContext, ReadinessState.ACCEPTING_TRAFFIC);
     }
+  }
+
+  @Test
+  @WithAnonymousUser
+  void sharedJwtProtectsGeneratorApiAndActuatorProbesRemainPublic() throws Exception {
+    mockMvc.perform(get("/__test/success")).andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"));
+    String secret = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+    var key = new SecretKeySpec(Base64.getDecoder().decode(secret), "HmacSHA256");
+    var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
+    Instant now = Instant.now();
+    String token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
+        JwtClaimsSet.builder().issuer("fkit-bi").audience(java.util.List.of("fkit-bi-api"))
+            .subject(UUID.randomUUID().toString()).issuedAt(now).expiresAt(now.plusSeconds(1800)).build())).getTokenValue();
+    mockMvc.perform(get("/__test/success").header("Authorization", "Bearer " + token))
+        .andExpect(status().isOk());
+    String wrongAudience = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
+        JwtClaimsSet.builder().issuer("fkit-bi").audience(java.util.List.of("wrong"))
+            .subject(UUID.randomUUID().toString()).issuedAt(now).expiresAt(now.plusSeconds(1800)).build())).getTokenValue();
+    mockMvc.perform(get("/__test/success").header("Authorization", "Bearer " + wrongAudience))
+        .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"));
+    String wrongIssuer = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
+        JwtClaimsSet.builder().issuer("other-issuer").audience(java.util.List.of("fkit-bi-api"))
+            .subject(UUID.randomUUID().toString()).issuedAt(now).expiresAt(now.plusSeconds(1800)).build())).getTokenValue();
+    String expired = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
+        JwtClaimsSet.builder().issuer("fkit-bi").audience(java.util.List.of("fkit-bi-api"))
+            .subject(UUID.randomUUID().toString()).issuedAt(now.minusSeconds(3600)).expiresAt(now.minusSeconds(1)).build())).getTokenValue();
+    String futureIssued = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
+        JwtClaimsSet.builder().issuer("fkit-bi").audience(java.util.List.of("fkit-bi-api"))
+            .subject(UUID.randomUUID().toString()).issuedAt(now.plusSeconds(60)).expiresAt(now.plusSeconds(1800)).build())).getTokenValue();
+    String longLived = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
+        JwtClaimsSet.builder().issuer("fkit-bi").audience(java.util.List.of("fkit-bi-api"))
+            .subject(UUID.randomUUID().toString()).issuedAt(now).expiresAt(now.plusSeconds(1801)).build())).getTokenValue();
+    for (String invalidToken : new String[] {"not.a.jwt", wrongIssuer, expired, futureIssued, longLived}) {
+      mockMvc.perform(get("/__test/success").header("Authorization", "Bearer " + invalidToken))
+          .andExpect(status().isUnauthorized()).andExpect(jsonPath("$.code").value("AUTHENTICATION_FAILED"));
+    }
+    mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
   }
 
   @TestConfiguration

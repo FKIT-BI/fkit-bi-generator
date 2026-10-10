@@ -23,6 +23,11 @@ management:
           show-details: always
         liveness:
           include: livenessState
+fkit:
+  schema:
+    expected-release: 002-authentication
+  auth:
+    jwt-secret: ${FKIT_JWT_SECRET:}
 info:
   fkit:
     git-sha: ${FKIT_BI_GIT_SHA:unknown}

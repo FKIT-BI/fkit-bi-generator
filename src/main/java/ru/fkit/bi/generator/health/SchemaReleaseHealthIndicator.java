@@ -16,7 +16,7 @@ public class SchemaReleaseHealthIndicator implements HealthIndicator {
 
   public SchemaReleaseHealthIndicator(
       JdbcTemplate jdbcTemplate,
-      @Value("${fkit.schema.expected-release:001-foundation}") String expectedRelease) {
+      @Value("${fkit.schema.expected-release:002-authentication}") String expectedRelease) {
     this.jdbcTemplate = jdbcTemplate;
     this.expectedRelease = expectedRelease;
   }
