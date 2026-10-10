@@ -11,7 +11,10 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include:
+          - health
+          - info
+          - prometheus
   endpoint:
     health:
       probes:
@@ -23,6 +26,21 @@ management:
           show-details: always
         liveness:
           include: livenessState
+    prometheus:
+      access: read-only
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+logging:
+  structured:
+    format:
+      console: logstash
+    json:
+      add:
+        service: ${spring.application.name}
 fkit:
   schema:
     expected-release: 002-authentication

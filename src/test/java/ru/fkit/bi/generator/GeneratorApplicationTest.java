@@ -1,11 +1,14 @@
 package ru.fkit.bi.generator;
 
 import static org.hamcrest.Matchers.matchesPattern;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.hamcrest.Matchers.containsString;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -14,10 +17,14 @@ import jakarta.validation.constraints.Size;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.availability.AvailabilityChangeEvent;
 import org.springframework.boot.availability.ReadinessState;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.autoconfigure.actuate.observability.AutoConfigureObservability;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ApplicationContext;
@@ -46,15 +53,21 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import java.time.Instant;
 import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Testcontainers
 @SpringBootTest
 @AutoConfigureMockMvc
+@AutoConfigureObservability
 @Import(GeneratorApplicationTest.TestEndpoints.class)
 @WithMockUser
+@ExtendWith(OutputCaptureExtension.class)
 class GeneratorApplicationTest {
   @Container
   static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:16-alpine")
@@ -77,6 +90,33 @@ class GeneratorApplicationTest {
     mockMvc.perform(get("/__test/success").header("X-Trace-Id", "client.trace-42"))
         .andExpect(status().isOk())
         .andExpect(header().string("X-Trace-Id", "client.trace-42"));
+  }
+
+  @Test
+  void structuredLogsContainSafeTraceIdAndNoAuthorizationSecret(CapturedOutput output) throws Exception {
+    String bearerToken = signedTestToken();
+    mockMvc.perform(get("/__test/log-probe")
+            .header("X-Trace-Id", "safe-log-trace-42")
+            .header("Authorization", "Bearer " + bearerToken))
+        .andExpect(status().isOk())
+        .andExpect(header().string("X-Trace-Id", "safe-log-trace-42"));
+
+    String logLine = output.getOut().lines()
+        .filter(line -> line.contains("trace-log-probe"))
+        .findFirst().orElseThrow();
+    new ObjectMapper().readTree(logLine);
+    assertThat(logLine).contains("safe-log-trace-42")
+        .doesNotContain(bearerToken);
+  }
+
+  private String signedTestToken() {
+    String secret = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=";
+    var key = new SecretKeySpec(Base64.getDecoder().decode(secret), "HmacSHA256");
+    var encoder = new NimbusJwtEncoder(new ImmutableSecret<>(key));
+    Instant now = Instant.now();
+    return encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(),
+        JwtClaimsSet.builder().issuer("fkit-bi").audience(List.of("fkit-bi-api"))
+            .subject(UUID.randomUUID().toString()).issuedAt(now).expiresAt(now.plusSeconds(1800)).build())).getTokenValue();
   }
 
   @Test
@@ -190,6 +230,20 @@ class GeneratorApplicationTest {
   }
 
   @Test
+  @WithAnonymousUser
+  void prometheusMetricsAreAvailableToInternalScrapersWithoutChangingReadiness() throws Exception {
+    mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
+    mockMvc.perform(get("/actuator/prometheus"))
+        .andExpect(status().isOk())
+        .andExpect(content().string(containsString("jvm_memory_used_bytes")))
+        .andExpect(content().string(containsString("http_server_requests_seconds_bucket")))
+        .andExpect(content().string(containsString("application=\"fkit-bi-generator\"")));
+    mockMvc.perform(get("/actuator/health/readiness"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.status").value("UP"));
+  }
+
+  @Test
   void readinessRequiresTheExactSchemaReleaseAndLivenessStaysUp() throws Exception {
     jdbcTemplate.update("UPDATE equipment.schema_release SET release = '002-next' WHERE singleton = TRUE");
     mockMvc.perform(get("/actuator/health/readiness"))
@@ -267,7 +321,9 @@ class GeneratorApplicationTest {
   @RestController
   @RequestMapping("/__test")
   static class TestApi {
+    private static final Logger LOGGER = LoggerFactory.getLogger(TestApi.class);
     @GetMapping("/success") String success() { return "ok"; }
+    @GetMapping("/log-probe") String logProbe() { LOGGER.info("trace-log-probe"); return "ok"; }
     @GetMapping("/fail") String fail() { throw new IllegalStateException("password=never-return-this"); }
     @PostMapping("/validate") String validate(@Valid @RequestBody TestRequest request) { return request.value(); }
     @PostMapping("/validate-multiple") String validateMultiple(@Valid @RequestBody MultiInvalidRequest request) { return "ok"; }
