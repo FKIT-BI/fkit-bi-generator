@@ -62,7 +62,12 @@ import org.slf4j.LoggerFactory;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(properties = {
+    "spring.liquibase.enabled=false",
+    "generator.realtime.initial-delay-ms=3600000",
+    "generator.historical.initial-delay-ms=3600000",
+    "generator.scheduled.initial-delay-ms=3600000"
+})
 @AutoConfigureMockMvc
 @AutoConfigureObservability
 @Import(GeneratorApplicationTest.TestEndpoints.class)

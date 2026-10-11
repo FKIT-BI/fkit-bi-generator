@@ -14,9 +14,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import ru.fkit.bi.generator.scenario.ScenarioValidationException;
+import ru.fkit.bi.generator.run.RunConflictException;
+import ru.fkit.bi.generator.run.RunValidationException;
 
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -24,6 +28,43 @@ public class ApiExceptionHandler {
   @ExceptionHandler(HttpMessageNotReadableException.class)
   ResponseEntity<ErrorResponse> malformedJson(HttpServletRequest request) {
     return error(request, HttpStatus.BAD_REQUEST, "MALFORMED_REQUEST", "Request body is invalid", List.of());
+  }
+
+  @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+  ResponseEntity<ErrorResponse> invalidParameter(HttpServletRequest request) {
+    return error(request, HttpStatus.BAD_REQUEST, "INVALID_PARAMETER", "A request parameter has an invalid value", List.of());
+  }
+
+  @ExceptionHandler(ScenarioValidationException.class)
+  ResponseEntity<ErrorResponse> scenarioValidation(ScenarioValidationException exception, HttpServletRequest request) {
+    var result = exception.validation();
+    List<ErrorResponse.FieldError> fields = result.issues().stream()
+        .filter(issue -> issue.severity() == ru.fkit.bi.generator.scenario.ScenarioModels.Severity.ERROR)
+        .map(issue -> new ErrorResponse.FieldError(issue.path(), issue.code(), issue.message())).toList();
+    Object attribute = request.getAttribute(TraceIdFilter.ATTRIBUTE);
+    String traceId = attribute instanceof String value ? value : "unknown";
+    return ResponseEntity.unprocessableEntity().body(new ErrorResponse("SCENARIO_VALIDATION_FAILED",
+        "Scenario validation failed", traceId, fields, Map.of("validation", result)));
+  }
+
+  @ExceptionHandler(RunValidationException.class)
+  ResponseEntity<ErrorResponse> runValidation(RunValidationException exception, HttpServletRequest request) {
+    var result = exception.validation();
+    List<ErrorResponse.FieldError> fields = result.issues().stream()
+        .filter(issue -> "ERROR".equals(issue.severity()))
+        .map(issue -> new ErrorResponse.FieldError(issue.path(), issue.code(), issue.message())).toList();
+    Object attribute = request.getAttribute(TraceIdFilter.ATTRIBUTE);
+    String traceId = attribute instanceof String value ? value : "unknown";
+    return ResponseEntity.unprocessableEntity().body(new ErrorResponse("RUN_VALIDATION_FAILED",
+        "Run validation failed", traceId, fields, Map.of("validation", result)));
+  }
+
+  @ExceptionHandler(RunConflictException.class)
+  ResponseEntity<ErrorResponse> runConflict(RunConflictException exception, HttpServletRequest request) {
+    Object attribute = request.getAttribute(TraceIdFilter.ATTRIBUTE);
+    String traceId = attribute instanceof String value ? value : "unknown";
+    return ResponseEntity.status(HttpStatus.CONFLICT).body(new ErrorResponse(
+        exception.code(), exception.getMessage(), traceId, List.of(), exception.details()));
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)

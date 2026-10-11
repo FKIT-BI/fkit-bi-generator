@@ -14,6 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Check out Analytics schema used by integration tests
+        uses: actions/checkout@v4
+        with:
+          repository: FKIT-BI/fkit-bi-analytics
+          ref: develop
+          path: .ci/fkit-bi-analytics
+          token: ${{ secrets.FKIT_BI_GITHUB_TOKEN }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

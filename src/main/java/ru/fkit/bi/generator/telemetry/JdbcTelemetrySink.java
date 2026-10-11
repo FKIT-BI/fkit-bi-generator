@@ -54,7 +54,7 @@ public class JdbcTelemetrySink implements TelemetrySink {
   }
 
   @Override
-  public void accept(TelemetryBatch batch) {
+  public TelemetryWriteResult accept(TelemetryBatch batch) {
     meters.counter("telemetry.generated.measurements").increment(batch.measurements().size());
     try {
       validateEnvelope(batch);
@@ -65,7 +65,7 @@ public class JdbcTelemetrySink implements TelemetrySink {
           Integer accepted = tx.execute(status -> persist(batch, payloadHash));
           if (accepted != null && accepted > 0) meters.counter("telemetry.accepted.measurements").increment(accepted);
           lastSuccessfulWriteMillis.set(System.currentTimeMillis());
-          return;
+          return TelemetryWriteResult.committed(batch.measurements().size());
         } catch (TelemetryRetryableException | TransientDataAccessException retryable) {
           if (retry++ < 2) {
             try {
@@ -79,7 +79,7 @@ public class JdbcTelemetrySink implements TelemetrySink {
           if (batch.mode() == TelemetryBatch.Mode.REALTIME) {
             meters.counter("telemetry.dropped.measurements").increment(batch.measurements().size());
             meters.counter("telemetry.failed.batches").increment();
-            return;
+            return TelemetryWriteResult.dropped(batch.measurements().size());
           }
           throw retryable;
         }

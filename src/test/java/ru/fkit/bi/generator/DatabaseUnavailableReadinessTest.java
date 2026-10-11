@@ -16,7 +16,12 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @Testcontainers
-@SpringBootTest
+@SpringBootTest(properties = {
+    "spring.liquibase.enabled=false",
+    "generator.realtime.initial-delay-ms=3600000",
+    "generator.historical.initial-delay-ms=3600000",
+    "generator.scheduled.initial-delay-ms=3600000"
+})
 @AutoConfigureMockMvc
 class DatabaseUnavailableReadinessTest {
   @Container

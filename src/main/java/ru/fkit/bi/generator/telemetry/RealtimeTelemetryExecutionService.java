@@ -15,9 +15,13 @@ public class RealtimeTelemetryExecutionService {
     this.sink = Objects.requireNonNull(sink);
   }
 
-  public void publish(String producerId, String stableBatchId, long sequence, UUID runId,
+  public TelemetryWriteResult publish(String producerId, String stableBatchId, long sequence, UUID runId,
       List<TelemetryMeasurement> generatedMeasurements) {
-    sink.accept(new TelemetryBatch(producerId, stableBatchId, sequence, runId,
-        TelemetryBatch.Mode.REALTIME, generatedMeasurements));
+    return publish(producerId, stableBatchId, sequence, runId, TelemetryBatch.Mode.REALTIME, generatedMeasurements);
+  }
+
+  public TelemetryWriteResult publish(String producerId, String stableBatchId, long sequence, UUID runId,
+      TelemetryBatch.Mode mode, List<TelemetryMeasurement> generatedMeasurements) {
+    return sink.accept(new TelemetryBatch(producerId, stableBatchId, sequence, runId, mode, generatedMeasurements));
   }
 }

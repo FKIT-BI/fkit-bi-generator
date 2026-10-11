@@ -32,6 +32,8 @@ paths:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/Size'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Страница сценариев
           content:
@@ -52,6 +54,8 @@ paths:
               lineDemo:
                 $ref: '#/components/examples/ScenarioCreateExample'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '201':
           description: Сценарий создан в статусе DISABLED
           headers:
@@ -75,6 +79,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ScenarioCreate' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Полный результат проверки; domain errors представлены issues
           content:
@@ -91,6 +97,8 @@ paths:
       operationId: getScenario
       summary: Получить полную конфигурацию сценария
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Сценарий с актуальным validation result
           content:
@@ -108,6 +116,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/ScenarioUpdate' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Обновлённый сценарий и validation result
           content:
@@ -132,6 +142,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/StatusUpdate' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Сценарий с новым статусом
           content:
@@ -158,6 +170,8 @@ paths:
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Limit'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Cursor-page запусков в порядке requestedAt DESC, id DESC
           content:
@@ -180,6 +194,8 @@ paths:
               historical:
                 $ref: '#/components/examples/HistoricalRunCreateExample'
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '202':
           description: Запуск создан и принят к выполнению либо ожиданию срока
           headers:
@@ -203,6 +219,8 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RunCreate' }
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Нормализованные границы, estimates, conflicts и issues
           content:
@@ -220,6 +238,8 @@ paths:
       operationId: getRun
       summary: Получить запуск, progress и analytics context
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Полное состояние запуска
           content:
@@ -237,6 +257,8 @@ paths:
       summary: Остановить либо отменить запуск
       description: Повторная команда идемпотентно возвращает текущее состояние.
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '200':
           description: Запуск уже terminal либо был отменён до выполнения
           content:
@@ -259,6 +281,8 @@ paths:
       operationId: retryRun
       summary: Повторить retryable failed запуск
       responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
         '202':
           description: Следующая attempt поставлена в очередь
           content:
@@ -361,6 +385,16 @@ components:
       schema: { type: string, minLength: 8, maxLength: 128 }
 
   responses:
+    Unauthorized:
+      description: Отсутствующий, неверный или просроченный JWT
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
+    Forbidden:
+      description: Аутентифицированный субъект не имеет доступа к ресурсу
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorResponse' }
     BadRequest:
       description: Malformed JSON, query либо несовместимый transport input
       content:
