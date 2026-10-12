@@ -3,6 +3,7 @@ WORKDIR /workspace
 COPY pom.xml .
 RUN mvn -B -q dependency:go-offline
 COPY src src
+COPY docs/contracts docs/contracts
 RUN mvn -B -q package -DskipTests
 FROM eclipse-temurin:21-jre-alpine
 RUN apk add --no-cache wget
