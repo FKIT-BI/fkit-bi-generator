@@ -65,6 +65,7 @@ jobs:
         with:
           method: oidc
           identity-id: ${{ vars.FKIT_BI_INFISICAL_IDENTITY_ID }}
+          oidc-audience: https://github.com/FKIT-BI
           domain: https://secrets.kitexp.ru
           project-slug: ${{ vars.FKIT_BI_INFISICAL_PROJECT_SLUG }}
           env-slug: dev
