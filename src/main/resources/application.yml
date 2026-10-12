@@ -7,6 +7,18 @@ spring:
     password: ${SPRING_DATASOURCE_PASSWORD:fkit_bi}
     hikari:
       connection-timeout: 2000
+server:
+  forward-headers-strategy: framework
+springdoc:
+  swagger-ui:
+    url: ../openapi/generator-api-draft.yaml
+    config-url: ../v3/api-docs/swagger-config
+    disable-swagger-default-url: true
+    operations-sorter: alpha
+    tags-sorter: alpha
+  api-docs:
+    enabled: true
+  show-actuator: false
 management:
   endpoints:
     web:

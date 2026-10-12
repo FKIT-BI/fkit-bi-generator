@@ -7,6 +7,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.anonymous;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.hamcrest.Matchers.containsString;
 
@@ -21,6 +22,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.boot.test.system.CapturedOutput;
 import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.boot.availability.AvailabilityChangeEvent;
 import org.springframework.boot.availability.ReadinessState;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -55,6 +57,12 @@ import java.time.Instant;
 import java.util.Base64;
 import java.util.List;
 import java.util.UUID;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.when;
+import ru.fkit.bi.generator.scenario.ScenarioModels.Page;
+import ru.fkit.bi.generator.scenario.ScenarioService;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.slf4j.Logger;
@@ -89,12 +97,44 @@ class GeneratorApplicationTest {
   @Autowired MockMvc mockMvc;
   @Autowired ApplicationContext applicationContext;
   @Autowired JdbcTemplate jdbcTemplate;
+  @MockitoBean ScenarioService scenarioService;
 
   @Test
   void successPreservesValidTraceIdAndReturnsItInHeader() throws Exception {
     mockMvc.perform(get("/__test/success").header("X-Trace-Id", "client.trace-42"))
         .andExpect(status().isOk())
         .andExpect(header().string("X-Trace-Id", "client.trace-42"));
+  }
+
+  @Test
+  void swaggerUiAndCanonicalContractArePublicButBusinessApiStillRequiresJwt() throws Exception {
+    mockMvc.perform(get("/swagger-ui/index.html").header("X-Forwarded-Prefix", "/api/generator").with(anonymous()))
+        .andExpect(status().isOk());
+    mockMvc.perform(get("/swagger-ui/swagger-ui-bundle.js").header("X-Forwarded-Prefix", "/api/generator").with(anonymous()))
+        .andExpect(status().isOk());
+    mockMvc.perform(get("/v3/api-docs/swagger-config").header("X-Forwarded-Prefix", "/api/generator").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.url")
+            .value("../openapi/generator-api-draft.yaml"))
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.configUrl")
+            .value("../v3/api-docs/swagger-config"));
+    mockMvc.perform(get("/v3/api-docs").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.openapi").value("3.1.0"));
+    mockMvc.perform(get("/openapi/generator-api-draft.yaml").header("X-Forwarded-Prefix", "/api/generator").with(anonymous()))
+        .andExpect(status().isOk())
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+            .string(org.hamcrest.Matchers.containsString("openapi: 3.1.0")))
+        .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+            .string(org.hamcrest.Matchers.containsString("url: ../api/v1")));
+    mockMvc.perform(get("/api/v1/scenarios").with(anonymous()))
+        .andExpect(status().isUnauthorized());
+    when(scenarioService.list(any(UUID.class), isNull(), isNull(), eq(0), eq(50)))
+        .thenReturn(new Page(java.util.List.of(), 0, 50, 0, 0));
+    mockMvc.perform(get("/api/v1/scenarios").param("enterpriseId", UUID.randomUUID().toString())
+            .with(anonymous())
+            .header("Authorization", "Bearer " + signedTestToken()))
+        .andExpect(status().isOk());
   }
 
   @Test

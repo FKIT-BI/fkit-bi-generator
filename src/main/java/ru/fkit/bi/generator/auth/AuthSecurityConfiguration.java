@@ -81,6 +81,7 @@ public class AuthSecurityConfiguration {
     http.csrf(csrf -> csrf.disable())
         .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(authorize -> authorize
+            .requestMatchers("/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs/**", "/openapi/generator-api-draft.yaml").permitAll()
             .requestMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
             .anyRequest().authenticated())
         .oauth2ResourceServer(resourceServer -> resourceServer

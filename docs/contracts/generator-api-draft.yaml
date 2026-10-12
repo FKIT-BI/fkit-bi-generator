@@ -10,7 +10,7 @@ info:
     scheduled generation runs. Equipment CRUD остаётся в Analytics API,
     а raw telemetry записывается внутренним JDBC TelemetrySink.
 servers:
-  - url: /api/v1
+  - url: ../api/v1
 security:
   - bearerAuth: []
 tags:
@@ -25,6 +25,7 @@ paths:
       tags: [scenarios]
       operationId: listScenarios
       summary: Получить сценарии предприятия
+      description: Возвращает страницу сценариев выбранного предприятия; по умолчанию включены только ACTIVE сценарии.
       parameters:
         - $ref: '#/components/parameters/EnterpriseIdQuery'
         - $ref: '#/components/parameters/ScenarioStatusFilter'
@@ -45,6 +46,7 @@ paths:
       tags: [scenarios]
       operationId: createScenario
       summary: Создать отключённый сценарий
+      description: Сохраняет валидную конфигурацию в статусе DISABLED. Для активации требуется отдельная команда статуса после успешной проверки.
       requestBody:
         required: true
         content:
@@ -78,6 +80,9 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ScenarioCreate' }
+            examples:
+              lineDemo:
+                $ref: '#/components/examples/ScenarioCreateExample'
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -96,6 +101,7 @@ paths:
       tags: [scenarios]
       operationId: getScenario
       summary: Получить полную конфигурацию сценария
+      description: Возвращает конфигурацию, включая цели машин, базовые поведения сигналов, фазы и последнюю проверку.
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -110,11 +116,28 @@ paths:
       tags: [scenarios]
       operationId: updateScenario
       summary: Полностью заменить изменяемую конфигурацию сценария
+      description: Заменяет имя, описание, режим цикла, набор машин и все фазы целиком; перед сохранением проверяет доменные ограничения.
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/ScenarioUpdate' }
+            examples:
+              fullReplacement:
+                summary: Полная конфигурация сценария
+                value:
+                  name: Демонстрация линии A
+                  description: Нормальная работа и перегрев
+                  cycleMode: LOOP
+                  machineTargets:
+                    - machineId: 20000000-0000-0000-0000-000000000001
+                      baseBehaviors: []
+                  phases:
+                    - code: NORMAL
+                      name: Нормальная работа
+                      durationMs: 600000
+                      expectedState: RUN
+                      behaviorOverrides: []
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -141,6 +164,10 @@ paths:
         content:
           application/json:
             schema: { $ref: '#/components/schemas/StatusUpdate' }
+            examples:
+              activate:
+                summary: Активировать сценарий
+                value: { status: ACTIVE }
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -159,6 +186,7 @@ paths:
       tags: [runs]
       operationId: listRuns
       summary: Получить журнал запусков предприятия
+      description: Возвращает запуски с фильтрами по сценарию, машине, режиму, статусам и времени запроса.
       parameters:
         - $ref: '#/components/parameters/EnterpriseIdQuery'
         - $ref: '#/components/parameters/ScenarioIdFilter'
@@ -183,6 +211,7 @@ paths:
       tags: [runs]
       operationId: createRun
       summary: Создать realtime, historical или scheduled запуск
+      description: Проверяет режим и конфликты с существующими запусками, затем принимает realtime, historical или scheduled execution.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -191,8 +220,14 @@ paths:
           application/json:
             schema: { $ref: '#/components/schemas/RunCreate' }
             examples:
+              realtime:
+                summary: Запустить realtime генерацию
+                value: { mode: REALTIME, scenarioId: 40000000-0000-0000-0000-000000000001, randomSeed: 482901, durationMs: 3600000 }
               historical:
                 $ref: '#/components/examples/HistoricalRunCreateExample'
+              scheduled:
+                summary: Запланировать генерацию
+                value: { mode: SCHEDULED, scenarioId: 40000000-0000-0000-0000-000000000001, randomSeed: 482901, scheduledStartAt: '2026-10-15T08:00:00Z', durationMs: 3600000 }
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -213,11 +248,21 @@ paths:
       tags: [runs]
       operationId: validateRun
       summary: Проверить и оценить запуск без создания
+      description: Возвращает нормализованный интервал, оценку объёма генерации и список конфликтов, не создавая run.
       requestBody:
         required: true
         content:
           application/json:
             schema: { $ref: '#/components/schemas/RunCreate' }
+            examples:
+              realtime:
+                summary: Проверить realtime параметры
+                value: { mode: REALTIME, scenarioId: 40000000-0000-0000-0000-000000000001, randomSeed: 482901, durationMs: 3600000 }
+              historical:
+                $ref: '#/components/examples/HistoricalRunCreateExample'
+              scheduled:
+                summary: Проверить scheduled параметры
+                value: { mode: SCHEDULED, scenarioId: 40000000-0000-0000-0000-000000000001, randomSeed: 482901, scheduledStartAt: '2026-10-15T08:00:00Z', durationMs: 3600000 }
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -237,6 +282,7 @@ paths:
       tags: [runs]
       operationId: getRun
       summary: Получить запуск, progress и analytics context
+      description: Возвращает состояние, прогресс, checkpoint, сведения об ошибке и фактический analytics context.
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -280,6 +326,7 @@ paths:
       tags: [runs]
       operationId: retryRun
       summary: Повторить retryable failed запуск
+      description: Создаёт следующую попытку только для FAILED запуска, ошибка которого помечена retryable.
       responses:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
@@ -308,17 +355,17 @@ components:
       name: scenarioId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: string, format: uuid, example: 40000000-0000-0000-0000-000000000001 }
     RunId:
       name: runId
       in: path
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: string, format: uuid, example: 50000000-0000-0000-0000-000000000001 }
     EnterpriseIdQuery:
       name: enterpriseId
       in: query
       required: true
-      schema: { type: string, format: uuid }
+      schema: { type: string, format: uuid, example: 10000000-0000-0000-0000-000000000001 }
     ScenarioStatusFilter:
       name: status
       in: query
@@ -327,33 +374,36 @@ components:
         allOf:
           - $ref: '#/components/schemas/ConfigurationStatus'
         default: ACTIVE
+        example: ACTIVE
     Search:
       name: search
       in: query
-      schema: { type: string, minLength: 1, maxLength: 100 }
+      schema: { type: string, minLength: 1, maxLength: 100, example: LINE_A }
     Page:
       name: page
       in: query
-      schema: { type: integer, minimum: 0, default: 0 }
+      schema: { type: integer, minimum: 0, default: 0, example: 0 }
     Size:
       name: size
       in: query
-      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50, example: 25 }
     ScenarioIdFilter:
       name: scenarioId
       in: query
-      schema: { type: string, format: uuid }
+      schema: { type: string, format: uuid, example: 40000000-0000-0000-0000-000000000001 }
     MachineIdFilter:
       name: machineId
       in: query
-      schema: { type: string, format: uuid }
+      schema: { type: string, format: uuid, example: 20000000-0000-0000-0000-000000000001 }
     RunModeFilter:
       name: mode
       in: query
-      schema: { $ref: '#/components/schemas/RunMode' }
+      schema: { $ref: '#/components/schemas/RunMode', example: HISTORICAL }
     RunStatusFilter:
       name: status
       in: query
+      description: Повторяемый фильтр по статусам запуска; пример ограничивает журнал запусками в RUNNING или FAILED.
+      example: [RUNNING, FAILED]
       style: form
       explode: true
       schema:
@@ -364,25 +414,27 @@ components:
     RequestedFrom:
       name: requestedFrom
       in: query
-      schema: { type: string, format: date-time }
+      schema: { type: string, format: date-time, example: '2026-10-01T00:00:00Z' }
     RequestedTo:
       name: requestedTo
       in: query
-      schema: { type: string, format: date-time }
+      schema: { type: string, format: date-time, example: '2026-10-02T00:00:00Z' }
     Cursor:
       name: cursor
       in: query
+      description: Непрозрачный курсор из nextCursor предыдущей страницы; не формируйте его вручную.
+      example: MTc5MTc2MzIwMDAwMDo1MDAwMDAwMC0wMDAwLTAwMDAtMDAwMC0wMDAwMDAwMDAwMDE
       schema: { type: string, minLength: 1, maxLength: 500 }
     Limit:
       name: limit
       in: query
-      schema: { type: integer, minimum: 1, maximum: 500, default: 100 }
+      schema: { type: integer, minimum: 1, maximum: 500, default: 100, example: 100 }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
       description: Повтор сетевого запроса обязан использовать тот же ключ и body.
-      schema: { type: string, minLength: 8, maxLength: 128 }
+      schema: { type: string, minLength: 8, maxLength: 128, example: create-run-20261012 }
 
   responses:
     Unauthorized:
