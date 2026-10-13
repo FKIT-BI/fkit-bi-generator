@@ -5,26 +5,35 @@ import java.util.UUID;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-/** Claims only when a worker slot is available; thread and in-flight batch memory are bounded. */
+/**
+ * Claims only when a worker slot is available; thread and in-flight batch memory are bounded.
+ * An endless realtime run holds its slot until it stops, so the pool size caps concurrently live runs.
+ */
 @Component
 public class RealtimeRunDispatcher {
   private final RealtimeRunLifecycleRepository repository;
   private final RealtimeRunExecutor executor;
   private final String workerId = UUID.randomUUID().toString();
-  private final ThreadPoolExecutor workers = new ThreadPoolExecutor(4, 4, 0L, TimeUnit.MILLISECONDS,
-      new SynchronousQueue<>(), runnable -> {
-        Thread thread = new Thread(runnable, "generator-realtime-run");
-        thread.setDaemon(true);
-        return thread;
-      }, new ThreadPoolExecutor.AbortPolicy());
+  private final ThreadPoolExecutor workers;
 
-  public RealtimeRunDispatcher(RealtimeRunLifecycleRepository repository, RealtimeRunExecutor executor) {
+  public RealtimeRunDispatcher(RealtimeRunLifecycleRepository repository, RealtimeRunExecutor executor,
+      @Value("${generator.realtime.workers:8}") int workerCount) {
+    if (workerCount < 1) throw new IllegalArgumentException("generator.realtime.workers must be positive");
     this.repository = repository;
     this.executor = executor;
+    this.workers = new ThreadPoolExecutor(workerCount, workerCount, 0L, TimeUnit.MILLISECONDS,
+        new SynchronousQueue<>(), runnable -> {
+          Thread thread = new Thread(runnable, "generator-realtime-run");
+          thread.setDaemon(true);
+          return thread;
+        }, new ThreadPoolExecutor.AbortPolicy());
   }
+
+  int workerCount() { return workers.getMaximumPoolSize(); }
 
   @Scheduled(fixedDelayString = "${generator.realtime.dispatch-delay-ms:250}", initialDelayString = "${generator.realtime.initial-delay-ms:0}")
   public void dispatch() {
