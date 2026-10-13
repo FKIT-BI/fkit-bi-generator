@@ -32,6 +32,12 @@ public class ScenarioController {
     return ResponseEntity.created(URI.create("/api/v1/scenarios/"+detail.id())).body(detail);
   }
 
+  @PostMapping("/{scenarioId}/copy")
+  public ResponseEntity<Detail> copy(@PathVariable UUID scenarioId,@Valid @RequestBody CopyRequest request){
+    Detail detail=service.copy(scenarioId,request);
+    return ResponseEntity.created(URI.create("/api/v1/scenarios/"+detail.id())).body(detail);
+  }
+
   @PostMapping("/validate")
   public ValidationResult validate(@Valid @RequestBody CreateRequest request){return service.validate(request);}
 

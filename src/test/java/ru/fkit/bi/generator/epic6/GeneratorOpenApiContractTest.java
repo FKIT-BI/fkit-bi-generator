@@ -15,10 +15,10 @@ import org.junit.jupiter.api.Test;
 class GeneratorOpenApiContractTest {
   private static final Set<String> OPERATIONS = Set.of(
       "listScenarios", "createScenario", "validateScenarioDraft", "getScenario", "updateScenario",
-      "updateScenarioStatus", "listRuns", "createRun", "validateRun", "getRun", "stopRun", "retryRun");
+      "updateScenarioStatus", "copyScenario", "listRuns", "createRun", "validateRun", "getRun", "stopRun", "retryRun");
 
   @Test
-  void openApiRetainsAllTwelveSecuredOperationsAndSharedAuthErrors() throws Exception {
+  void openApiRetainsAllThirteenSecuredOperationsAndSharedAuthErrors() throws Exception {
     String yaml = Files.readString(Path.of("docs/contracts/generator-api-draft.yaml"));
     Matcher matcher = Pattern.compile("(?m)^\\s+operationId: ([A-Za-z0-9]+)\\s*$").matcher(yaml);
     Set<String> actual = new HashSet<>();
@@ -26,8 +26,8 @@ class GeneratorOpenApiContractTest {
     assertEquals(OPERATIONS, actual);
     assertTrue(yaml.contains("security:\n  - bearerAuth: []"), "API must require the shared JWT bearer scheme");
     assertTrue(yaml.contains("bearerAuth:\n      type: http\n      scheme: bearer\n      bearerFormat: JWT"));
-    assertEquals(12, occurrences(yaml, "'401': { $ref: '#/components/responses/Unauthorized' }"));
-    assertEquals(12, occurrences(yaml, "'403': { $ref: '#/components/responses/Forbidden' }"));
+    assertEquals(13, occurrences(yaml, "'401': { $ref: '#/components/responses/Unauthorized' }"));
+    assertEquals(13, occurrences(yaml, "'403': { $ref: '#/components/responses/Forbidden' }"));
     assertDocumentedOperationsAndBodies(yaml);
     assertParameterExamples(yaml);
     for (String response : Set.of("Unauthorized", "Forbidden", "BadRequest", "NotFound", "Conflict", "UnprocessableEntity", "InternalError")) {
@@ -44,7 +44,7 @@ class GeneratorOpenApiContractTest {
     }
     String migration = Files.readString(migrationPath);
     String validator = Files.readString(Path.of("src/main/java/ru/fkit/bi/generator/scenario/ScenarioValidator.java"));
-    assertEquals(2, occurrences(yaml, "description: { type: [string, 'null'], maxLength: 2000 }"));
+    assertEquals(3, occurrences(yaml, "description: { type: [string, 'null'], maxLength: 2000 }"));
     assertTrue(migration.contains("description VARCHAR(2000)"));
     assertTrue(validator.contains("description.length() > 2000"));
   }
