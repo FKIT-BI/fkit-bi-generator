@@ -69,9 +69,9 @@ public class ScenarioRepository {
 
   public Page list(UUID enterpriseId, Status status, String search, int page, int size) {
     String pattern = search == null ? null : "%" + search.toLowerCase() + "%";
-    Long total = jdbc.queryForObject("SELECT count(*) FROM generator.generation_scenario WHERE enterprise_id=? AND status=? AND (? IS NULL OR lower(code) LIKE ? OR lower(name) LIKE ?)",
+    Long total = jdbc.queryForObject("SELECT count(*) FROM generator.generation_scenario WHERE enterprise_id=? AND status=? AND (CAST(? AS text) IS NULL OR lower(code) LIKE ? OR lower(name) LIKE ?)",
         Long.class, enterpriseId, status.name(), pattern, pattern, pattern);
-    List<Summary> items = jdbc.query("SELECT id,enterprise_id,code,name,status,cycle_mode,definition,created_at,updated_at FROM generator.generation_scenario WHERE enterprise_id=? AND status=? AND (? IS NULL OR lower(code) LIKE ? OR lower(name) LIKE ?) ORDER BY updated_at DESC,id LIMIT ? OFFSET ?",
+    List<Summary> items = jdbc.query("SELECT id,enterprise_id,code,name,status,cycle_mode,definition,created_at,updated_at FROM generator.generation_scenario WHERE enterprise_id=? AND status=? AND (CAST(? AS text) IS NULL OR lower(code) LIKE ? OR lower(name) LIKE ?) ORDER BY updated_at DESC,id LIMIT ? OFFSET ?",
         (rs, n) -> { Definition d = parse(rs.getString("definition")); return new Summary(rs.getObject("id", UUID.class), rs.getObject("enterprise_id", UUID.class), rs.getString("code"), rs.getString("name"), Status.valueOf(rs.getString("status")), CycleMode.valueOf(rs.getString("cycle_mode")), d.machineTargets().size(), d.phases().size(), rs.getTimestamp("created_at").toInstant(), rs.getTimestamp("updated_at").toInstant()); },
         enterpriseId, status.name(), pattern, pattern, pattern, size, (long) page * size);
     long count = total == null ? 0 : total;
