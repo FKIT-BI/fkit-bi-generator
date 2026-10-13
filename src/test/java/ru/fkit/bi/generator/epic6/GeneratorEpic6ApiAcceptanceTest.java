@@ -119,6 +119,80 @@ class GeneratorEpic6ApiAcceptanceTest {
   }
 
   @Test
+  void copyCreatesIndependentDisabledScenarioWithSameDefinition() throws Exception {
+    Fixture fixture = fixture(2);
+    String sourceId = createActiveScenario(fixture, List.of(0, 1));
+    JsonNode source = mapper.readTree(mvc.perform(get("/api/v1/scenarios/{id}", sourceId).with(user("epic6")))
+        .andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
+    String code = code("COPY");
+
+    String response = mvc.perform(post("/api/v1/scenarios/{id}/copy", sourceId).with(user("epic6"))
+            .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(Map.of("code", code, "name", "Копия сценария"))))
+        .andExpect(status().isCreated()).andExpect(header().exists("Location"))
+        .andExpect(jsonPath("$.code").value(code)).andExpect(jsonPath("$.name").value("Копия сценария"))
+        .andExpect(jsonPath("$.status").value("DISABLED")).andExpect(jsonPath("$.validation.valid").value(true))
+        .andReturn().getResponse().getContentAsString();
+    JsonNode copy = mapper.readTree(response);
+    assertNotEquals(sourceId, copy.path("id").asText());
+    assertEquals(source.path("enterpriseId"), copy.path("enterpriseId"));
+    assertEquals(source.path("cycleMode"), copy.path("cycleMode"));
+    assertEquals(source.path("machineTargets"), copy.path("machineTargets"));
+    assertEquals(source.path("phases"), copy.path("phases"));
+    assertEquals(2, jdbc.queryForObject("SELECT count(*) FROM generator.generation_scenario_machine WHERE scenario_id=?",
+        Integer.class, UUID.fromString(copy.path("id").asText())));
+
+    mvc.perform(put("/api/v1/scenarios/{id}/status", copy.path("id").asText()).with(user("epic6"))
+            .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"ACTIVE\"}"))
+        .andExpect(status().isOk());
+    assertEquals("ACTIVE", jdbc.queryForObject("SELECT status FROM generator.generation_scenario WHERE id=?", String.class,
+        UUID.fromString(sourceId)));
+  }
+
+  @Test
+  void copyRejectsTakenCodeInvalidCodeAndUnknownSource() throws Exception {
+    Fixture fixture = fixture(1);
+    String sourceId = createActiveScenario(fixture, List.of(0));
+    String sourceCode = jdbc.queryForObject("SELECT code FROM generator.generation_scenario WHERE id=?", String.class, UUID.fromString(sourceId));
+
+    mvc.perform(post("/api/v1/scenarios/{id}/copy", sourceId).with(user("epic6"))
+            .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(Map.of("code", sourceCode, "name", "Дубликат"))))
+        .andExpect(status().isConflict());
+    mvc.perform(post("/api/v1/scenarios/{id}/copy", sourceId).with(user("epic6"))
+            .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(Map.of("code", "bad code", "name", "Копия"))))
+        .andExpect(status().isUnprocessableEntity()).andExpect(jsonPath("$.fieldErrors[0].path").value("code"));
+    mvc.perform(post("/api/v1/scenarios/{id}/copy", UUID.randomUUID()).with(user("epic6"))
+            .contentType(MediaType.APPLICATION_JSON).content(mapper.writeValueAsString(Map.of("code", code("COPY"), "name", "Копия"))))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  void seededDemoScenariosPassActivationAndRunValidation() throws Exception {
+    List<Map<String, Object>> scenarios = jdbc.queryForList(
+        "SELECT id::text id, code, cycle_mode FROM generator.generation_scenario WHERE code LIKE 'DEMO\\_%' ORDER BY code");
+    assertEquals(List.of("DEMO_BOTTLE_LINE", "DEMO_JAR_LINE", "DEMO_LIVE_ALARM", "DEMO_PREPARATION", "DEMO_TUBES_LINE", "DEMO_WAREHOUSE"),
+        scenarios.stream().map(row -> row.get("code")).toList());
+    // Listing without a search term must not leave the nullable filter parameter untyped.
+    String cosmetics = jdbc.queryForObject("SELECT id::text FROM equipment.enterprise WHERE code='DEMO_COSMETICS'", String.class);
+    mvc.perform(get("/api/v1/scenarios").with(user("epic6")).param("enterpriseId", cosmetics).param("status", "DISABLED"))
+        .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(5));
+    for (Map<String, Object> scenario : scenarios) {
+      String id = (String) scenario.get("id");
+      mvc.perform(get("/api/v1/scenarios/{id}", id).with(user("epic6")))
+          .andExpect(status().isOk()).andExpect(jsonPath("$.validation.valid").value(true))
+          .andExpect(jsonPath("$.validation.errorCount").value(0));
+      mvc.perform(put("/api/v1/scenarios/{id}/status", id).with(user("epic6"))
+              .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"ACTIVE\"}"))
+          .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+      mvc.perform(post("/api/v1/runs/validate").with(user("epic6")).contentType(MediaType.APPLICATION_JSON)
+              .content(mapper.writeValueAsString(realtimeRequest(id, 60_000L, 7L))))
+          .andExpect(status().isOk()).andExpect(jsonPath("$.valid").value(true));
+      mvc.perform(put("/api/v1/scenarios/{id}/status", id).with(user("epic6"))
+              .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"DISABLED\"}"))
+          .andExpect(status().isOk());
+    }
+  }
+
+  @Test
   void sameIdempotencyKeyReturnsOriginalRunAndDifferentBodyConflicts() throws Exception {
     Fixture fixture = fixture(1);
     String scenarioId = createActiveScenario(fixture, List.of(0));

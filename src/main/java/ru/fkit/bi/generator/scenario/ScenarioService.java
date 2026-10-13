@@ -28,6 +28,12 @@ public class ScenarioService {
       throw new ScenarioValidationException(result);
     try{return repository.insert(request,result);}catch(DuplicateKeyException e){throw new ResponseStatusException(HttpStatus.CONFLICT,"Scenario code already exists for enterprise");}
   }
+  @Transactional
+  public Detail copy(UUID id, CopyRequest request) {
+    Detail source=repository.get(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Scenario not found"));
+    String description=request.description()==null?source.description():request.description();
+    return create(new CreateRequest(source.enterpriseId(),request.code(),request.name(),description,source.cycleMode(),source.machineTargets(),source.phases()));
+  }
   public Detail get(UUID id) {
     Detail d=repository.get(id).orElseThrow(()->new ResponseStatusException(HttpStatus.NOT_FOUND,"Scenario not found"));
     ValidationResult v=validator.validate(d.enterpriseId(),d.code(),d.name(),d.description(),d.cycleMode(),d.machineTargets(),d.phases());

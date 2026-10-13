@@ -181,6 +181,34 @@ paths:
         '422': { $ref: '#/components/responses/UnprocessableEntity' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /scenarios/{scenarioId}/copy:
+    parameters:
+      - $ref: '#/components/parameters/ScenarioId'
+    post:
+      tags: [scenarios]
+      operationId: copyScenario
+      summary: Создать копию сценария
+      description: Создаёт новый сценарий того же предприятия с теми же машинами, базовыми поведениями, фазами и режимом цикла. Копия сохраняется в статусе DISABLED независимо от статуса исходного сценария; описание берётся из исходного, если не передано.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ScenarioCopy' }
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '201':
+          description: Копия создана в статусе DISABLED
+          headers:
+            Location: { $ref: '#/components/headers/Location' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ScenarioDetail' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/UnprocessableEntity' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   /runs:
     get:
       tags: [runs]
@@ -524,6 +552,19 @@ components:
           minItems: 1
           maxItems: 20
           items: { $ref: '#/components/schemas/ScenarioPhaseInput' }
+
+    ScenarioCopy:
+      type: object
+      example:
+        code: DEMO_JAR_LINE_BAD_WEEK
+        name: 'Розлив кремов: плохая неделя'
+        description: Копия типовой смены для варианта с частыми авариями
+      additionalProperties: false
+      required: [code, name]
+      properties:
+        code: { type: string, pattern: '^[A-Z][A-Z0-9_]{1,63}$' }
+        name: { type: string, minLength: 1, maxLength: 200 }
+        description: { type: [string, 'null'], maxLength: 2000 }
 
     ScenarioUpdate:
       type: object

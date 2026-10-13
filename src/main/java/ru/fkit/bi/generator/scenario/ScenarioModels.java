@@ -20,6 +20,8 @@ public final class ScenarioModels {
 
   public record CreateRequest(@NotNull UUID enterpriseId, String code, String name, String description,
       @NotNull CycleMode cycleMode, List<MachineTarget> machineTargets, List<Phase> phases) {}
+  /** A copy keeps the source enterprise, machines, behaviors, phases and cycle mode; a null description keeps the source one. */
+  public record CopyRequest(String code, String name, String description) {}
   public record UpdateRequest(String name, String description, @NotNull CycleMode cycleMode,
       List<MachineTarget> machineTargets, List<Phase> phases) {}
   public record MachineTarget(@NotNull UUID machineId, List<BaseBehavior> baseBehaviors) {}
